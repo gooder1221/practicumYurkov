@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ const (
 	
 	// Константы для преобразования единиц
 	bytesInMb     = 1024 * 1024
-	bitsInMb      = 1000000 // 1 мегабит = 1,000,000 бит
+	bitsInMb      = 125000       // 1 мегабит = 1,000,000 бит / 8 = 125,000 байт
 	maxErrors     = 3
 	pollInterval  = 30 * time.Second
 )
@@ -130,7 +131,7 @@ func checkThresholds(stats *ServerStats) {
 	if stats.TotalMemory > 0 {
 		memoryUsage := float64(stats.UsedMemory) / float64(stats.TotalMemory)
 		if memoryUsage > memoryUsageThreshold {
-			percentage := memoryUsage * 100
+			percentage := math.Round(memoryUsage * 100)
 			fmt.Printf("Memory usage too high: %.0f%%\n", percentage)
 		}
 	}
@@ -140,7 +141,7 @@ func checkThresholds(stats *ServerStats) {
 		diskUsage := float64(stats.UsedDisk) / float64(stats.TotalDisk)
 		if diskUsage > diskUsageThreshold {
 			freeSpace := float64(stats.TotalDisk - stats.UsedDisk) / float64(bytesInMb)
-			fmt.Printf("Free disk space is too low: %.0f Mb left\n", freeSpace)
+			fmt.Printf("Free disk space is too low: %.0f Mb left\n", math.Round(freeSpace))
 		}
 	}
 
@@ -150,9 +151,9 @@ func checkThresholds(stats *ServerStats) {
 		if networkUsage > networkUsageThreshold {
 			// Свободная полоса = общая пропускная способность - текущее использование
 			freeBandwidth := float64(stats.NetworkBandwidth - stats.NetworkUsage)
-			// Конвертируем из байт/сек в мегабит/сек
-			freeMbits := (freeBandwidth * 8) / float64(bitsInMb)
-			fmt.Printf("Network bandwidth usage high: %.0f Mbit/s available\n", freeMbits)
+			// Конвертируем из байт/сек в мегабит/сек: байты * 8 / 1,000,000
+			freeMbits := (freeBandwidth * 8) / 1000000
+			fmt.Printf("Network bandwidth usage high: %.0f Mbit/s available\n", math.Round(freeMbits))
 		}
 	}
 }
