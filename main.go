@@ -98,8 +98,20 @@ func fetchServerStats(client *http.Client) (*ServerStats, error) {
 		return nil, fmt.Errorf("invalid used disk format: %v", err)
 	}
 	
-	if stats.NetworkBandwidth, err = strconv.ParseUint(values[5], 10, 64); err != nil {
-		return nil, fmt.Errorf("invalid network bandwidth format: %v", err)
+	// Шестое значение - это текущая загруженность сети (использование)
+	if stats.NetworkUsage, err = strconv.ParseUint(values[5], 10, 64); err != nil {
+		return nil, fmt.Errorf("invalid network usage format: %v", err)
+	}
+
+	// Если есть седьмое значение - это пропускная способность
+	if len(values) >= 7 {
+		if stats.NetworkBandwidth, err = strconv.ParseUint(values[6], 10, 64); err != nil {
+			return nil, fmt.Errorf("invalid network bandwidth format: %v", err)
+		}
+	} else {
+		// Если нет седьмого значения, используем какое-то разумное значение по умолчанию
+		// или пропускаем проверку сети
+		stats.NetworkBandwidth = 0
 	}
 
 	return stats, nil
@@ -130,12 +142,10 @@ func checkThresholds(stats *ServerStats) {
 	}
 
 	// Проверка загруженности сети
-	if stats.NetworkBandwidth > 0 {
-		// В тестовых данных используется used_memory как текущая загруженность сети
-		currentNetworkUsage := stats.UsedMemory
-		networkUsage := float64(currentNetworkUsage) / float64(stats.NetworkBandwidth)
+	if stats.NetworkBandwidth > 0 && stats.NetworkUsage > 0 {
+		networkUsage := float64(stats.NetworkUsage) / float64(stats.NetworkBandwidth)
 		if networkUsage > networkUsageThreshold {
-			freeBytes := float64(stats.NetworkBandwidth - currentNetworkUsage)
+			freeBytes := float64(stats.NetworkBandwidth - stats.NetworkUsage)
 			// Конвертируем из байт/сек в мегабит/сек
 			freeMbits := (freeBytes * float64(bytesInBit)) / float64(bitsInMb)
 			fmt.Printf("Network bandwidth usage high: %.0f Mbit/s available\n", freeMbits)
@@ -150,5 +160,6 @@ type ServerStats struct {
 	UsedMemory       uint64
 	TotalDisk        uint64
 	UsedDisk         uint64
-	NetworkBandwidth uint64
+	NetworkUsage     uint64  // Текущая загруженность сети
+	NetworkBandwidth uint64  // Пропускная способность сети
 }
