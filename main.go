@@ -1,4 +1,5 @@
-go mod init
+go mod init srvmonitor
+go build -o srvmonitor
 package main
 
 import (
