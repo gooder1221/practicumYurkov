@@ -65,12 +65,15 @@ type ServerStats struct {
 }
 
 func fetchServerStats() (*ServerStats, error) {
-	// Установка соединения
-	conn, err := net.Dial("tcp", serverHost)
+	// Установка соединения с таймаутом
+	conn, err := net.DialTimeout("tcp", serverHost, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 	defer conn.Close()
+
+	// Установка таймаута на чтение
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	
 	// Отправка HTTP запроса
 	request := "GET /_stats HTTP/1.1\r\n" +
