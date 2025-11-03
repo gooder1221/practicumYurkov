@@ -70,11 +70,12 @@ func fetchServerStats(client *http.Client) (*ServerStats, error) {
 	line := strings.TrimSpace(string(body))
 	values := strings.Split(line, ",")
 	
-	if len(values) != 6 {
-		return nil, fmt.Errorf("invalid data format: expected 6 values, got %d", len(values))
+	// Более гибкая проверка формата - допускаем от 6 до 7 значений
+	if len(values) < 6 {
+		return nil, fmt.Errorf("invalid data format: expected at least 6 values, got %d", len(values))
 	}
 
-	// Парсим значения
+	// Парсим значения - берем первые 6 значений, игнорируем лишние
 	stats := &ServerStats{}
 	
 	if stats.LoadAverage, err = strconv.ParseFloat(values[0], 64); err != nil {
