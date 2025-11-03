@@ -1,3 +1,4 @@
+go mod init
 package main
 
 import (
