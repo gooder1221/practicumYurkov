@@ -21,7 +21,6 @@ const (
 	// Константы для преобразования единиц
 	bytesInMb     = 1024 * 1024
 	bitsInMb      = 1000000 // 1 мегабит = 1,000,000 бит
-	bytesInBit    = 8       // 1 байт = 8 бит
 	maxErrors     = 3
 	pollInterval  = 30 * time.Second
 )
@@ -70,47 +69,51 @@ func fetchServerStats(client *http.Client) (*ServerStats, error) {
 	line := strings.TrimSpace(string(body))
 	values := strings.Split(line, ",")
 	
-	// Более гибкая проверка формата - допускаем от 6 до 7 значений
 	if len(values) < 6 {
 		return nil, fmt.Errorf("invalid data format: expected at least 6 values, got %d", len(values))
 	}
 
-	// Парсим значения - берем первые 6 значений, игнорируем лишние
 	stats := &ServerStats{}
 	
+	// Парсим значения в правильном порядке согласно описанию:
+	// 1. Load Average
 	if stats.LoadAverage, err = strconv.ParseFloat(values[0], 64); err != nil {
 		return nil, fmt.Errorf("invalid load average format: %v", err)
 	}
 	
+	// 2. Total Memory
 	if stats.TotalMemory, err = strconv.ParseUint(values[1], 10, 64); err != nil {
 		return nil, fmt.Errorf("invalid total memory format: %v", err)
 	}
 	
+	// 3. Used Memory
 	if stats.UsedMemory, err = strconv.ParseUint(values[2], 10, 64); err != nil {
 		return nil, fmt.Errorf("invalid used memory format: %v", err)
 	}
 	
+	// 4. Total Disk
 	if stats.TotalDisk, err = strconv.ParseUint(values[3], 10, 64); err != nil {
 		return nil, fmt.Errorf("invalid total disk format: %v", err)
 	}
 	
+	// 5. Used Disk
 	if stats.UsedDisk, err = strconv.ParseUint(values[4], 10, 64); err != nil {
 		return nil, fmt.Errorf("invalid used disk format: %v", err)
 	}
 	
-	// Шестое значение - это текущая загруженность сети (использование)
-	if stats.NetworkUsage, err = strconv.ParseUint(values[5], 10, 64); err != nil {
-		return nil, fmt.Errorf("invalid network usage format: %v", err)
+	// 6. Network Bandwidth (пропускная способность)
+	if stats.NetworkBandwidth, err = strconv.ParseUint(values[5], 10, 64); err != nil {
+		return nil, fmt.Errorf("invalid network bandwidth format: %v", err)
 	}
 
-	// Если есть седьмое значение - это пропускная способность
+	// 7. Network Usage (текущая загруженность) - если есть
 	if len(values) >= 7 {
-		if stats.NetworkBandwidth, err = strconv.ParseUint(values[6], 10, 64); err != nil {
-			return nil, fmt.Errorf("invalid network bandwidth format: %v", err)
+		if stats.NetworkUsage, err = strconv.ParseUint(values[6], 10, 64); err != nil {
+			return nil, fmt.Errorf("invalid network usage format: %v", err)
 		}
 	} else {
-		// Если нет седьмого значения, используем какое-то разумное значение по умолчанию
-		// или пропускаем проверку сети
+		// Если нет отдельного значения использования сети, не проверяем сеть
+		stats.NetworkUsage = 0
 		stats.NetworkBandwidth = 0
 	}
 
@@ -141,13 +144,14 @@ func checkThresholds(stats *ServerStats) {
 		}
 	}
 
-	// Проверка загруженности сети
+	// Проверка загруженности сети (только если есть оба значения)
 	if stats.NetworkBandwidth > 0 && stats.NetworkUsage > 0 {
 		networkUsage := float64(stats.NetworkUsage) / float64(stats.NetworkBandwidth)
 		if networkUsage > networkUsageThreshold {
-			freeBytes := float64(stats.NetworkBandwidth - stats.NetworkUsage)
+			// Свободная полоса = общая пропускная способность - текущее использование
+			freeBandwidth := float64(stats.NetworkBandwidth - stats.NetworkUsage)
 			// Конвертируем из байт/сек в мегабит/сек
-			freeMbits := (freeBytes * float64(bytesInBit)) / float64(bitsInMb)
+			freeMbits := (freeBandwidth * 8) / float64(bitsInMb)
 			fmt.Printf("Network bandwidth usage high: %.0f Mbit/s available\n", freeMbits)
 		}
 	}
@@ -160,6 +164,6 @@ type ServerStats struct {
 	UsedMemory       uint64
 	TotalDisk        uint64
 	UsedDisk         uint64
-	NetworkUsage     uint64  // Текущая загруженность сети
-	NetworkBandwidth uint64  // Пропускная способность сети
+	NetworkBandwidth uint64 // Пропускная способность (байт/сек)
+	NetworkUsage     uint64 // Текущее использование (байт/сек)
 }
