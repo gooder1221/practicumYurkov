@@ -1,3 +1,4 @@
+go mod init srvmonitor
 package main
 
 import (
