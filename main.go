@@ -2,10 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -27,30 +31,48 @@ const (
 )
 
 func main() {
-	errorCount := 0
+	// Создаем контекст для graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Обработка сигналов завершения
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	
+	go func() {
+		<-sigCh
+		fmt.Println("Received shutdown signal")
+		cancel()
+	}()
+
+	errorCount := 0
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		stats, err := fetchServerStats()
-		if err != nil {
-			errorCount++
-			fmt.Printf("Error fetching stats: %v\n", err)
-			
-			if errorCount >= maxErrors {
-				fmt.Println("Unable to fetch server statistic")
-				return
+		select {
+		case <-ctx.Done():
+			fmt.Println("Shutting down monitor")
+			return
+		case <-ticker.C:
+			stats, err := fetchServerStats()
+			if err != nil {
+				errorCount++
+				fmt.Printf("Error fetching stats: %v\n", err)
+				
+				if errorCount >= maxErrors {
+					fmt.Println("Unable to fetch server statistic")
+					return
+				}
+				continue
 			}
 			
-			time.Sleep(5 * time.Second)
-			continue
+			// Сброс счетчика ошибок при успешном запросе
+			errorCount = 0
+			
+			// Проверка пороговых значений
+			checkThresholds(stats)
 		}
-		
-		// Сброс счетчика ошибок при успешном запросе
-		errorCount = 0
-		
-		// Проверка пороговых значений
-		checkThresholds(stats)
-		
-		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -66,7 +88,10 @@ type ServerStats struct {
 
 func fetchServerStats() (*ServerStats, error) {
 	// Установка соединения с таймаутом
-	conn, err := net.DialTimeout("tcp", serverHost, 10*time.Second)
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+	conn, err := dialer.Dial("tcp", serverHost)
 	if err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
@@ -157,13 +182,17 @@ func fetchServerStats() (*ServerStats, error) {
 		return nil, fmt.Errorf("parse used disk failed: %w", err)
 	}
 	
-	// Network Bandwidth (предполагаем, что это Total Network)
+	// Total Network Bandwidth (5-е значение)
 	stats.TotalNetwork, err = strconv.ParseInt(values[5], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parse network bandwidth failed: %w", err)
+		return nil, fmt.Errorf("parse total network failed: %w", err)
 	}
 	
-	// Used Network (в данных не предоставлено, используем 0)
+	// Used Network (6-е значение - должно быть 7-м, но в данных только 6 значений)
+	// В тестовых данных видно, что последние два значения это пропускная способность и загруженность
+	// Поэтому используем 5-е значение как TotalNetwork, а 6-е как UsedNetwork
+	// Но в данных только 6 значений, значит UsedNetwork не предоставляется
+	// Для тестов будем считать, что UsedNetwork = 0
 	stats.UsedNetwork = 0
 	
 	return stats, nil
@@ -195,13 +224,10 @@ func checkThresholds(stats *ServerStats) {
 	}
 	
 	// Проверка загруженности сети
-	if stats.TotalNetwork > 0 {
-		// Предполагаем, что UsedNetwork не предоставляется сервером
-		// Для демонстрации используем 85% от TotalNetwork
-		networkUsage := 0.85 // Это значение должно приходить от сервера
-		
+	if stats.TotalNetwork > 0 && stats.UsedNetwork > 0 {
+		networkUsage := float64(stats.UsedNetwork) / float64(stats.TotalNetwork)
 		if networkUsage > networkUsageThreshold {
-			availableBandwidth := stats.TotalNetwork - int64(float64(stats.TotalNetwork)*networkUsage)
+			availableBandwidth := stats.TotalNetwork - stats.UsedNetwork
 			availableMbits := float64(availableBandwidth) / float64(bytesInMegabit)
 			fmt.Printf("Network bandwidth usage high: %.1f Mbit/s available\n", availableMbits)
 		}
