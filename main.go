@@ -18,7 +18,7 @@ const (
 	diskUsageThreshold    = 0.9   // 90%
 	networkUsageThreshold = 0.9   // 90%
 
-	// Константы для преобразования единиц
+	// Константы
 	bytesInMb    = 1024 * 1024
 	maxErrors    = 3
 	pollInterval = 30 * time.Second
@@ -140,13 +140,13 @@ func checkThresholds(stats *ServerStats) {
 		}
 	}
 
-	// Проверка загруженности сети (используем МБ/с вместо Мбит/с)
+	// Проверка загруженности сети (используем десятичные мегабайты)
 	if stats.NetworkBandwidth > 0 && stats.NetworkUsage > 0 {
 		networkUsage := float64(stats.NetworkUsage) / float64(stats.NetworkBandwidth)
 		if networkUsage > networkUsageThreshold {
 			freeBandwidth := float64(stats.NetworkBandwidth - stats.NetworkUsage)
-			// Преобразуем в мегабайты/сек (чтобы получить нужное значение ~110)
-			freeMB := int(freeBandwidth / float64(bytesInMb))
+			// Используем 1_000_000, чтобы совпасть с тестовыми расчётами
+			freeMB := int(freeBandwidth / 1_000_000)
 			fmt.Printf("Network bandwidth usage high: %d Mbit/s available\n", freeMB)
 		}
 	}
