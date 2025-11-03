@@ -1,5 +1,5 @@
-go mod init srvmonitor
 package main
+
 import (
 	"bufio"
 	"fmt"
@@ -17,12 +17,12 @@ const (
 
 // Пороговые значения
 const (
-	loadAverageThreshold  = 30.0
-	memoryUsageThreshold  = 0.8
-	diskUsageThreshold    = 0.9
-	networkUsageThreshold = 0.9
-	bytesToMegabytes      = 1024 * 1024
-	bytesToMegabits       = 125000
+	loadAverageThreshold      = 30.0
+	memoryUsageThreshold      = 0.8  // 80%
+	diskUsageThreshold        = 0.9  // 90%
+	networkUsageThreshold     = 0.9  // 90%
+	bytesToMegabytes          = 1024 * 1024
+	bytesToMegabits           = 125000 // 1,000,000 bits / 8
 )
 
 type ServerStats struct {
@@ -53,20 +53,22 @@ func main() {
 				errorCount++
 				if errorCount >= maxErrors {
 					fmt.Println("Unable to fetch server statistic")
-					errorCount = 0
+					errorCount = 0 // Сбрасываем счетчик после вывода сообщения
 				}
 				continue
 			}
 
+			// Сбрасываем счетчик ошибок при успешном запросе
 			errorCount = 0
+
+			// Проверяем метрики и выводим предупреждения
 			checkMetrics(stats)
 		}
 	}
 }
 
 func fetchStats() (*ServerStats, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(serverURL)
+	resp, err := http.Get(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %v", err)
 	}
@@ -76,12 +78,13 @@ func fetchStats() (*ServerStats, error) {
 		return nil, fmt.Errorf("server returned status: %s", resp.Status)
 	}
 
+	// Читаем тело ответа
 	scanner := bufio.NewScanner(resp.Body)
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("empty response body")
 	}
 
-	line := strings.TrimSpace(scanner.Text())
+	line := scanner.Text()
 	values := strings.Split(line, ",")
 	
 	if len(values) != 6 {
@@ -89,36 +92,34 @@ func fetchStats() (*ServerStats, error) {
 	}
 
 	stats := &ServerStats{}
-	parseErrors := []string{}
 
+	// Парсим значения
 	if stats.LoadAverage, err = strconv.ParseFloat(values[0], 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("load average: %v", err))
+		return nil, fmt.Errorf("invalid load average value: %v", err)
 	}
 
 	if stats.TotalMemory, err = strconv.ParseUint(values[1], 10, 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("total memory: %v", err))
+		return nil, fmt.Errorf("invalid total memory value: %v", err)
 	}
 
 	if stats.UsedMemory, err = strconv.ParseUint(values[2], 10, 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("used memory: %v", err))
+		return nil, fmt.Errorf("invalid used memory value: %v", err)
 	}
 
 	if stats.TotalDisk, err = strconv.ParseUint(values[3], 10, 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("total disk: %v", err))
+		return nil, fmt.Errorf("invalid total disk value: %v", err)
 	}
 
 	if stats.UsedDisk, err = strconv.ParseUint(values[4], 10, 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("used disk: %v", err))
+		return nil, fmt.Errorf("invalid used disk value: %v", err)
 	}
 
 	if stats.TotalNetwork, err = strconv.ParseUint(values[5], 10, 64); err != nil {
-		parseErrors = append(parseErrors, fmt.Sprintf("total network: %v", err))
+		return nil, fmt.Errorf("invalid total network value: %v", err)
 	}
 
-	if len(parseErrors) > 0 {
-		return nil, fmt.Errorf("parse errors: %s", strings.Join(parseErrors, "; "))
-	}
-
+	// Для использованной сети используем то же значение что и общая пропускная способность
+	// (в задании указано только 6 значений, предполагаем что used_network = total_network)
 	stats.UsedNetwork = stats.TotalNetwork
 
 	return stats, nil
